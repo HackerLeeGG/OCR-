@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小聪为您算工时</title>
+</head>
+<body>
+    <h2>请上传打卡截图</h2>
+    <input type="file" id="fileInput" accept="image/*">
+    
+    <h3>您的工时信息如下</h3>
+    <p id="recognizedTimes">请上传图片进行时间识别。</p>
+
+    <h3>每个时间段的工时</h3>
+    <ul id="workHours"></ul>
+
+    <h3>最终结果</h3>
+    <p id="finalResult"></p>
+
+    <!-- 引入 Tesseract.js -->
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@2.0.0/dist/tesseract.min.js"></script>
+
+    <script>
+        document.getElementById('fileInput').addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (file) {
+                // 调用 OCR 识别图片（中文语言）
+                Tesseract.recognize(
+                    file,
+                    'chi_sim', // 使用简体中文 OCR 语言包
+                    {
+                        logger: info => console.log(info) // 显示 OCR 识别进度
+                    }
+                ).then(({ data: { text } }) => {
+                    console.log('识别文本：', text);
+
+                    // 提取时间
+                    const timePairs = extractTimePairs(text);
+                    if (timePairs.length > 0) {
+                        displayTimePairs(timePairs);
+                        const totalWorkHours = calculateWorkHours(timePairs);
+                        const remainingHours = Math.max(9 - totalWorkHours, 0);
+                        document.getElementById('finalResult').innerText = `还需工作时长：${remainingHours.toFixed(2)}小时`;
+                    } else {
+                        document.getElementById('recognizedTimes').innerText = '未能识别出有效的时间数据';
+                        document.getElementById('finalResult').innerText = '';
+                    }
+                }).catch(err => {
+                    console.error(err);
+                    document.getElementById('recognizedTimes').innerText = 'OCR 识别失败';
+                    document.getElementById('finalResult').innerText = '';
+                });
+            }
+        });
+
+        // 提取每对“到”和“退”的时间
+        function extractTimePairs(text) {
+            const regex = /(?:到|退)\s*(\d{1,2}:\d{2})/g;  // 匹配“到”或“退”后的时间
+            let matches = [];
+            let match;
+            while ((match = regex.exec(text)) !== null) {
+                matches.push(match[1]);  // 提取时间部分
+            }
+
+            // 每两个时间组成一组，返回二维数组
+            const pairs = [];
+            for (let i = 0; i < matches.length; i += 2) {
+                if (matches[i + 1]) {
+                    pairs.push([matches[i], matches[i + 1]]);
+                }
+            }
+            return pairs;
+        }
+
+        // 显示时间对（上午、下午、晚上）
+        function displayTimePairs(pairs) {
+            const labels = ['上午签到时间', '上午签退时间', '下午签到时间', '下午签退时间', '晚上签到时间', '晚上签退时间'];
+            const timesText = pairs.flatMap(pair => pair).join('，');
+            document.getElementById('recognizedTimes').innerText = `识别的时间：${timesText}`;
+
+            const ul = document.getElementById('workHours');
+            ul.innerHTML = ''; // 清空之前的内容
+            pairs.forEach((pair, index) => {
+                const label1 = labels[index * 2] || `时间段${index + 1}签到时间`;
+                const label2 = labels[index * 2 + 1] || `时间段${index + 1}签退时间`;
+                const li = document.createElement('li');
+                li.innerText = `${label1}: ${pair[0]}, ${label2}: ${pair[1]}`;
+                ul.appendChild(li);
+            });
+        }
+
+        // 计算每对时间的工时
+        function calculateWorkHours(pairs) {
+            let totalWorkHours = 0;
+
+            const ul = document.getElementById('workHours');
+            pairs.forEach(pair => {
+                const [start, end] = pair;
+                const workHours = calculateTimeDifference(start, end);
+                totalWorkHours += workHours;
+
+                // 在对应列表项中添加工时信息
+                const li = document.createElement('li');
+                li.innerText = `工时：${workHours.toFixed(2)}小时`;
+                ul.appendChild(li);
+            });
+
+            return totalWorkHours;
+        }
+
+        // 计算两个时间的时间差（小时为单位）
+        function calculateTimeDifference(start, end) {
+            const [startHours, startMinutes] = start.split(":").map(Number);
+            const [endHours, endMinutes] = end.split(":").map(Number);
+
+            const startDate = new Date(0, 0, 0, startHours, startMinutes);
+            const endDate = new Date(0, 0, 0, endHours, endMinutes);
+
+            let diffMs = endDate - startDate;
+            if (diffMs < 0) {
+                diffMs += 24 * 60 * 60 * 1000; // 如果结束时间早于开始时间，假设是跨天
+            }
+
+            return diffMs / (1000 * 60 * 60); // 转换为小时
+        }
+    </script>
+</body>
+</html>
